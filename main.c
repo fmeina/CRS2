@@ -12,11 +12,10 @@
 
 int main(int argc,char **argv) {
     // basic array of doubles
-    double inputArr[] = {2,8,9,4,3,8,9,6};
+    double inputArr[] = {2,8,9,4,3,8,9,6,4,2,5,1};
     int arrayCount = (sizeof(inputArr) / sizeof(inputArr[0]));
     int option;
     double result;
-    double changedArray[arrayCount + 1];
 
     printf("Choose algorithm: ");
     scanf("%d", &option);
@@ -24,26 +23,11 @@ int main(int argc,char **argv) {
     switch (option) {
         case 1:
             printf("You've chosen Powell singular function");
-
-            // start array with 1
-
-            changedArray[0] = 0;
-            for (int i = 1; i < arrayCount+1; ++i) {
-                changedArray[i] = inputArr[i-1];
-            }
-
-            result = powellSingularFunction(changedArray, arrayCount);
+            result = powellSingularFunction(inputArr, arrayCount);
             break;
         case 2:
             printf("You've chosen Woods function");
-
-            // start array with 1
-            changedArray[0] = 0;
-            for (int i = 1; i < arrayCount+1; ++i) {
-                changedArray[i] = inputArr[i-1];
-            }
-
-            result = woodsFunction(changedArray, arrayCount);
+            result = woodsFunction(inputArr, arrayCount);
             break;
         case 3:
             printf("You've chosen Arrowhead function.");
