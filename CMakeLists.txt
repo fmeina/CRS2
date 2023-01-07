@@ -7,4 +7,4 @@ set(CMAKE_C_FLAGS "-fopenmp")
 include_directories(.)
 
 add_executable(CRS2
-        main.c)
+        main.c src/functions/testFunctions.h src/functions/testFunctions.c src/functions/functionsChecks.c src/functions/functionsChecks.h)
