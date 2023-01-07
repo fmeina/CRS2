@@ -21,8 +21,8 @@ const function_t *sum_func_get(void)
 {
     static const function_t result = 
     {
-        .domain_min = -2.0,
-        .domain_max = 2.0,
+        .domain_min = -2000.0,
+        .domain_max = 2000.0,
         .p_func = sum_func
     };
 
@@ -47,7 +47,7 @@ static double sum_func(const double *x, const int n)
 
     for (size_t i = 0; i < n; i++)
     {
-        result += x[n];
+        result += x[i];
     }
     
     return result;

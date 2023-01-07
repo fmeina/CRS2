@@ -75,7 +75,7 @@ void crs2_optimize(point_t *const points_arr, const int points_cnt, const int x_
         /* step 2 - find worst and best point */
         for (size_t i = 0; i < points_cnt; i++)
         {
-            point_t *p = &points_arr[i];
+            point_t *const p = &points_arr[i];
 
             if (p->y < p_best_point->y)
             {
@@ -142,18 +142,25 @@ void crs2_optimize(point_t *const points_arr, const int points_cnt, const int x_
             }
         }
 
-        printf("Iteration %d:", cntr);
-        fputs("\t best: ", stdout);
+        printf("Iteration %06d:", cntr);
+        fputs("\tbest: ", stdout);
         point_print(p_best_point, x_cnt);
-        fputs("\t\tworst: ", stdout);
+        fputs("\t\t\tworst: ", stdout);
         point_print(p_worst_point, x_cnt);
 
-        if (fabs(p_worst_point->y - p_best_point->y) < CRS2_STOP_CONDITION)
+        double eps1 = fabs(1 - (p_worst_point->y / p_best_point->y));
+        double eps2 = fabs((p_worst_point->y - p_best_point->y));
+
+        printf("\t\t\tepsilon1 = %f\r\n", eps1);
+        printf("\t\t\tepsilon2 = %f\r\n", eps2);
+        fflush(stdout);
+
+
+        if (fmin(eps1, eps2) < CRS2_STOP_CONDITION)
         {
             puts("Stop condition hit");
             break;
         }
-
     }
 
     memcpy(result->x_arr, p_best_point->x_arr, x_cnt * sizeof(double));
