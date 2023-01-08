@@ -26,7 +26,6 @@ void help_print(void)
 	puts("Usage: CRS2 [-hpNnv] alg_name");
 	puts("alg_name (mandatory):");
 	puts("\tengval");
-	puts("\tsum");
 	puts("\tpowell");
 	puts("\twoods");
 	puts("\tarrowhead");
@@ -115,11 +114,6 @@ int main(int argc, char **argv)
 		{
 			puts("Performing Engvall's function optimization.");
 			p_optimized_function = engval_func_get();
-		}
-		else if (0 == strcmp("sum", argv[optind]))
-		{
-			puts("Performing sum function optimization.");
-			p_optimized_function = sum_func_get();
 		}
 		else if (0 == strcmp("powell", argv[optind]))
 		{

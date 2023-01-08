@@ -5,7 +5,6 @@
 #include "functionsChecks.h"
 
 static double engval_func(const double *x, const int n);
-static double sum_func(const double *x, const int n);
 static double powellSingularFunction(const double inputArr[], int arrayCount);
 static double woodsFunction(const double inputArr[], int arrayCount);
 static double arrowheadFunction(const double inputArr[], int arrayCount);
@@ -17,18 +16,6 @@ const function_t *engval_func_get(void)
         .domain_min = -2000.0,
         .domain_max = 2000.0,
         .p_func = engval_func
-    };
-
-    return &result;
-}
-
-const function_t *sum_func_get(void)
-{
-    static const function_t result = 
-    {
-        .domain_min = -2000.0,
-        .domain_max = 2000.0,
-        .p_func = sum_func
     };
 
     return &result;
@@ -82,18 +69,6 @@ static double engval_func(const double *x, const int n)
     
     return result;
 }
-
-static double sum_func(const double *x, const int n)
-{
-    double result = 0.0;
-
-    for (size_t i = 0; i < n; i++)
-    {
-        result += x[i];
-    }
-    
-    return result;
-};
 
 static double powellSingularFunction(const double inputArr[], int arrayCount)
 {
