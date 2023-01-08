@@ -1,4 +1,5 @@
 #include <stdio.h>
+#define _CRT_RAND_S
 #include <stdlib.h>
 #include <time.h>
 #include <stdbool.h>
@@ -36,7 +37,11 @@ void crs2_rand_points_generate(point_t **const p_points, const int points_cnt, c
         }
 
         points_arr[i].y = p_f->p_func(points_arr[i].x_arr, x_cnt);
-        // point_print(&points_arr[i], x_cnt);
+        if (true == verbose)
+        {
+            point_print(&points_arr[i], x_cnt);
+        }
+        
 
     }
 
@@ -61,7 +66,7 @@ int crs2_optimize(point_t *const points_arr, const int points_cnt, const int x_c
     point_t *const R = malloc((x_cnt + 1) * sizeof(point_t));
     point_t centroid;
     point_t next_trial_point;
-    uint rand_seed = time(NULL) ^ omp_get_thread_num();
+    unsigned int rand_seed = time(NULL) ^ omp_get_thread_num();
     point_init(&centroid, x_cnt);
     point_init(&next_trial_point, x_cnt);
 
@@ -72,8 +77,8 @@ int crs2_optimize(point_t *const points_arr, const int points_cnt, const int x_c
     for (cntr = 0; cntr < CRS2_ITERATIONS_MAX; ++cntr)
     {
         /* step 2 - find worst and best point */
-        #pragma omp critical
-        {
+        // #pragma omp critical
+        // {
             for (size_t i = 0; i < points_cnt; i++)
             {
                 point_t *const p = &points_arr[i];
@@ -91,7 +96,7 @@ int crs2_optimize(point_t *const points_arr, const int points_cnt, const int x_c
                     /* do nothing */
                 }
             }
-        }
+        // }
 
         while (true)
         {
@@ -105,13 +110,15 @@ int crs2_optimize(point_t *const points_arr, const int points_cnt, const int x_c
             // memset(centroid.x_arr, 0, x_cnt * sizeof(double));
 
             /* step 3 - select next trial point */
-            #pragma omp critical
-            {
+            // #pragma omp critical
+            // {
                 R[0] = *p_best_point;
 
                 for (size_t i = 1; i < (x_cnt + 1);)
                 {
-                    int idx = rand_r(&rand_seed) % points_cnt;
+                    unsigned int idx;
+                    rand_s(&idx);
+                    idx %= points_cnt;
 
                     if (p_best_point != &points_arr[idx])
                     {
@@ -119,7 +126,7 @@ int crs2_optimize(point_t *const points_arr, const int points_cnt, const int x_c
                         ++i;
                     }
                 }
-            }
+            // }
 
             for (size_t i = 0; i < x_cnt; i++)
             {
