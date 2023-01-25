@@ -6,9 +6,11 @@
 #include <string.h>
 #include <math.h>
 #include <omp.h>
+#include <mpi.h>
 #include "point.h"
 #include "function.h"
 #include "crs2.h"
+#include "common.h"
 
 #define CRS2_ITERATIONS_MAX 1000000
 #define CRS2_STOP_CONDITION 0.001
@@ -41,10 +43,7 @@ void crs2_rand_points_generate(point_t **const p_points, const int points_cnt, c
         {
             point_print(&points_arr[i], x_cnt);
         }
-        
-
     }
-
 }
 
 void crs2_points_free(point_t *const points_arr, const int points_cnt)
@@ -57,18 +56,53 @@ void crs2_points_free(point_t *const points_arr, const int points_cnt)
     free(points_arr);
 }
 
-int crs2_optimize(point_t *const points_arr, const int points_cnt, const int x_cnt, const function_t* p_f, point_t *const result, volatile bool *const stop_flag)
+static void stop_rq_get(int *p_stop_rq)
+{
+	MPI_Iprobe(MPI_ANY_SOURCE, CRS_TAG_STOP_RQ, MPI_COMM_WORLD, p_stop_rq, MPI_STATUS_IGNORE);
+}
+
+static void stop_rq_set()
+{
+	int world_rank;
+	int world_size;
+	int stop_rq = true;
+
+	MPI_Comm_rank(MPI_COMM_WORLD, &world_rank);
+	MPI_Comm_size(MPI_COMM_WORLD, &world_size);
+
+	for (int i = 0; i < world_size; ++i)
+	{
+		if (world_rank != i)
+		{
+			MPI_Send(&stop_rq, 1, MPI_C_BOOL, i, CRS_TAG_STOP_RQ, MPI_COMM_WORLD);
+		}
+	}
+}
+
+void result_snd(const point_t* const p_result, const int x_cnt)
+{
+	MPI_Send(p_result->x_arr, x_cnt, MPI_DOUBLE, CRS_RANK_MAIN, CRS_TAG_RESULT_X, MPI_COMM_WORLD);
+	MPI_Send(&p_result->y, 1, MPI_DOUBLE, CRS_RANK_MAIN, CRS_TAG_RESULT_Y, MPI_COMM_WORLD);
+}
+
+int crs2_optimize(point_t *const points_arr, const int points_cnt, const int x_cnt, const function_t* p_f)
 {
     bool constraints_ok = true;
     int cntr = 0;
+	int stop_rq = 0;
+	int world_rank;
     point_t *p_worst_point;
     point_t *p_best_point;
     point_t *const R = malloc((x_cnt + 1) * sizeof(point_t));
     point_t centroid;
     point_t next_trial_point;
-    unsigned int rand_seed = time(NULL) ^ omp_get_thread_num();
+	point_t result;
+	MPI_Comm_rank(MPI_COMM_WORLD, &world_rank);
+    unsigned int rand_seed = time(NULL) ^ world_rank;
+
     point_init(&centroid, x_cnt);
     point_init(&next_trial_point, x_cnt);
+	point_init(&result, x_cnt);
 
     p_worst_point = &points_arr[0];
     p_best_point = &points_arr[0];
@@ -76,31 +110,31 @@ int crs2_optimize(point_t *const points_arr, const int points_cnt, const int x_c
     /* perform optimization */
     for (cntr = 0; cntr < CRS2_ITERATIONS_MAX; ++cntr)
     {
-        /* step 2 - find worst and best point */
-        // #pragma omp critical
-        // {
-            for (size_t i = 0; i < points_cnt; i++)
-            {
-                point_t *const p = &points_arr[i];
+		/* step 2 - find worst and best point */
+		for (size_t i = 0; i < points_cnt; i++)
+		{
+			point_t* const p = &points_arr[i];
 
-                if (p->y < p_best_point->y)
-                {
-                    p_best_point = p;
-                }
-                else if (p->y > p_worst_point->y)
-                {
-                    p_worst_point = p;
-                }
-                else
-                {
-                    /* do nothing */
-                }
-            }
-        // }
+			if (p->y < p_best_point->y)
+			{
+				p_best_point = p;
+			}
+			else if (p->y > p_worst_point->y)
+			{
+				p_worst_point = p;
+			}
+			else
+			{
+				/* do nothing */
+			}
+		}
+
 
         while (true)
         {
-            if (true == *stop_flag)
+			stop_rq_get(&stop_rq);
+
+            if (true == stop_rq)
             {
                 cntr = -1;
                 break;
@@ -117,8 +151,14 @@ int crs2_optimize(point_t *const points_arr, const int points_cnt, const int x_c
                 for (size_t i = 1; i < (x_cnt + 1);)
                 {
                     unsigned int idx;
+#ifdef __linux__
+                    idx = rand_r(&rand_seed) % points_cnt;
+#elif _WIN32
                     rand_s(&idx);
                     idx %= points_cnt;
+#else
+#error unsupported system
+#endif
 
                     if (p_best_point != &points_arr[idx])
                     {
@@ -169,10 +209,12 @@ int crs2_optimize(point_t *const points_arr, const int points_cnt, const int x_c
             }
         }
 
-        if (true == *stop_flag)
+		stop_rq_get(&stop_rq);
+
+        if (true == stop_rq)
         {
-            break;
-            cntr = -1;
+			cntr = -1;
+			break;
         }
 
         if (true == verbose)
@@ -199,27 +241,22 @@ int crs2_optimize(point_t *const points_arr, const int points_cnt, const int x_c
         {
             if (true == verbose)
             {
-                printf("Thread %d done, iterations = %d\r\n", omp_get_thread_num(), cntr);
+                printf("Worker done \r\n");
             }
+
+			stop_rq_set();
+			memcpy(result.x_arr, p_best_point->x_arr, x_cnt * sizeof(double));
+			result.y = p_best_point->y;
+			result_snd(&result, x_cnt);
             break;
         }
     }
 
-    // omp_set_lock(&omp_lock);
-    #pragma omp critical
-    {
-        if (false == *stop_flag)
-        {
-            *stop_flag = true;
-            memcpy(result->x_arr, p_best_point->x_arr, x_cnt * sizeof(double));
-            result->y = p_best_point->y;
-        }
-    }
-    // omp_unset_lock(&omp_lock);
-
+	point_free(&result);
     point_free(&next_trial_point);
     point_free(&centroid);
     free(R);
 
     return cntr;
 }
+

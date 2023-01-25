@@ -1,3 +1,5 @@
+#pragma clang diagnostic push
+#pragma ide diagnostic ignored "openmp-use-default-none"
 #include <stdio.h>
 #include <stdlib.h>
 #include <sys/time.h>
@@ -8,17 +10,19 @@
 #include <string.h>
 #include <unistd.h>
 #include <argp.h>
+#include <mpi.h>
 #include "point.h"
 #include "function.h"
 #include "crs2.h"
+#include "common.h"
 
 bool verbose = false;
 
-void printTime(struct timeval *start, struct timeval *stop)
+void printTime(struct timeval* start, struct timeval* stop)
 {
 	long time = 1000000 * (stop->tv_sec - start->tv_sec) + stop->tv_usec - start->tv_usec;
 
-	printf("\nOpenMP execution time = %ld microseconds\n", time);
+	printf("\nExecution time = %ld microseconds\n", time);
 }
 
 void help_print(void)
@@ -37,23 +41,32 @@ void help_print(void)
 	puts("\t-v - (optional) verbose output");
 }
 
-int main(int argc, char **argv)
+typedef enum
+{
+	RUN_MODE_SEQ,
+	RUN_MODE_PARALLEL,
+	RUN_MODE_DISTRUBUTED
+} run_mode_e;
+
+static void run_mode_ditributed_exec(int points_cnt, int x_cnt, function_t const* p_f);
+
+int main(int argc, char** argv)
 {
 	struct timeval start, stop;
 	int thread;
 	// int threadnum = omp_get_max_threads();
-	bool parallel_exec_flag = false;
+	run_mode_e run_mode = RUN_MODE_SEQ;
 	int c;
 	opterr = 0;
-	const function_t *p_optimized_function;
+	const function_t* p_optimized_function;
 	int x_cnt = 0;
 	int points_cnt = 0;
 	int iterations;
-	point_t *points;
+	point_t* points;
 	point_t result;
 	bool stop_flag = false;
 
-	while (-1 != (c = getopt(argc, argv, "hpN:n:v")))
+	while (-1 != (c = getopt(argc, argv, "hpdN:n:v")))
 	{
 		switch (c)
 		{
@@ -63,13 +76,17 @@ int main(int argc, char **argv)
 			break;
 
 		case 'p':
-			parallel_exec_flag = true;
+			run_mode = RUN_MODE_PARALLEL;
 			break;
-		
+
+		case 'd':
+			run_mode = RUN_MODE_DISTRUBUTED;
+			break;
+
 		case 'N':
 			points_cnt = strtol(optarg, NULL, 0);
 			break;
-		
+
 		case 'n':
 			x_cnt = strtol(optarg, NULL, 0);
 			break;
@@ -83,7 +100,7 @@ int main(int argc, char **argv)
 			help_print();
 			return -1;
 			break;
-		
+
 		case ':':
 			printf("-%c without argument\n", optopt);
 			help_print();
@@ -99,13 +116,15 @@ int main(int argc, char **argv)
 	if (0 == x_cnt)
 	{
 		fputs("No n specified. Aborting\r\n", stderr);
-		return -1;
+		x_cnt = 2;
+//		return -1;
 	}
 
 	if (0 == points_cnt)
 	{
 		fputs("No N specified. Aborting\r\n", stderr);
-		return -1;
+		points_cnt = 2000;
+//		return -1;
 	}
 
 	if (optind < argc)
@@ -139,47 +158,121 @@ int main(int argc, char **argv)
 	else
 	{
 		fputs("No algorithm given. Aborting.\r\n", stderr);
-		exit(-1);
+		p_optimized_function = arrowhead_function_get();
+//		exit(-1);
 	}
-	
+
 	printf("N = %d\r\nn = %d\r\n", points_cnt, x_cnt);
 
 	gettimeofday(&start, NULL);
 	// run your computations here (including OpenMP stuff)
 
 	point_init(&result, x_cnt);
-	crs2_init();
-	crs2_rand_points_generate(&points, points_cnt, x_cnt, p_optimized_function);
 
-	if (true == parallel_exec_flag)
+	run_mode = RUN_MODE_DISTRUBUTED;
+	switch (run_mode)
 	{
+	case RUN_MODE_SEQ:
+		puts("Sequential execution begin");
+//		crs2_optimize(points, points_cnt, x_cnt, p_optimized_function, &result, &stop_flag);
+		break;
+
+	case RUN_MODE_PARALLEL:
 		printf("Parralel execution using %d threads begin\r\n", omp_get_max_threads());
 
 		#pragma omp parallel shared(stop_flag, points, p_optimized_function, result)
 		{
 			printf("Thread %d begin\r\n", omp_get_thread_num());
-			if (-1 != crs2_optimize(points, points_cnt, x_cnt, p_optimized_function, &result, &stop_flag))
-			{
-				printf("Thread %d found solution\r\n", omp_get_thread_num());
-			}
-			
+//			if (-1 != crs2_optimize(points, points_cnt, x_cnt, p_optimized_function, &result, &stop_flag))
+//			{
+//				printf("Thread %d found solution\r\n", omp_get_thread_num());
+//			}
+
 			printf("Thread %d end\r\n", omp_get_thread_num());
 		}
+		break;
+
+	case RUN_MODE_DISTRUBUTED:
+		run_mode_ditributed_exec(points_cnt, x_cnt,
+			p_optimized_function);
+		break;
+
+	default:
+		break;
 	}
-	else
-	{
-		puts("Sequential execution begin");
-		crs2_optimize(points, points_cnt, x_cnt, p_optimized_function, &result, &stop_flag);
 
-	}
+//	fputs("Result: ", stdout);
+//	point_print(&result, x_cnt);
 
-	fputs("Result: ", stdout);
-	point_print(&result, x_cnt);
-
-
-	crs2_points_free(points, points_cnt);
-	point_free(&result);
+//	crs2_points_free(points, points_cnt);
+//	point_free(&result);
 
 	gettimeofday(&stop, NULL);
 	printTime(&start, &stop);
 }
+
+static void run_mode_ditributed_exec(int points_cnt, int x_cnt, function_t const* p_f)
+{
+	int world_size;
+	int world_rank;
+	char proc_name[MPI_MAX_PROCESSOR_NAME];
+	int proc_name_len;
+	point_t *p_points = NULL;
+	point_t result;
+
+	MPI_Init(NULL, NULL);
+	MPI_Comm_size(MPI_COMM_WORLD, &world_size);
+	MPI_Comm_rank(MPI_COMM_WORLD, &world_rank);
+	MPI_Get_processor_name(proc_name, &proc_name_len);
+	point_init(&result, x_cnt);
+
+	if (CRS_RANK_MAIN == world_rank)
+	{
+		/* main rank generates N random points */
+		crs2_init();
+		puts("main worker generating random points");
+		crs2_rand_points_generate(&p_points, points_cnt, x_cnt, p_f);
+	}
+	else
+	{
+		/* other workers only allocates space for them */
+		p_points = malloc(points_cnt * sizeof(point_t));
+		for (int i = 0; i < points_cnt; ++i)
+		{
+			point_init(&p_points[i], x_cnt);
+		}
+	}
+
+	/* broadcast N random points from CRS_RANK_MAIN to all others */
+	for (int i = 0; i < points_cnt; ++i)
+	{
+		MPI_Bcast(p_points[i].x_arr, x_cnt, MPI_DOUBLE, CRS_RANK_MAIN, MPI_COMM_WORLD);
+		MPI_Bcast(&p_points[i].y, 1, MPI_DOUBLE, CRS_RANK_MAIN, MPI_COMM_WORLD);
+	}
+
+	/* probably unnecessary but sync here to be sure */
+	MPI_Barrier(MPI_COMM_WORLD);
+
+	/* perform optimization */
+	printf("Worker %d out of %d starting\n", world_rank, world_size);
+	crs2_optimize(p_points, points_cnt, x_cnt, p_f);
+
+	if (CRS_RANK_MAIN == world_rank)
+	{
+		MPI_Recv(&result.y, 1, MPI_DOUBLE, MPI_ANY_SOURCE, CRS_TAG_RESULT_Y, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
+		MPI_Recv(result.x_arr, x_cnt, MPI_DOUBLE, MPI_ANY_SOURCE, CRS_TAG_RESULT_X, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
+		fputs("Result: ", stdout);
+		point_print(&result, x_cnt);
+	}
+
+//	MPI_Recv(result, sizeof(point_t), MPI_BYTE, MPI_ANY_SOURCE, CRS_TAG_RESULT, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
+
+
+
+//	MPI_Barrier(MPI_COMM_WORLD);
+	point_free(&result);
+	crs2_points_free(p_points, points_cnt);
+	MPI_Finalize();
+}
+
+#pragma clang diagnostic pop
