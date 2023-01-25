@@ -41,46 +41,25 @@ void help_print(void)
 	puts("\t-v - (optional) verbose output");
 }
 
-typedef enum
-{
-	RUN_MODE_SEQ,
-	RUN_MODE_PARALLEL,
-	RUN_MODE_DISTRUBUTED
-} run_mode_e;
-
 static void run_mode_ditributed_exec(int points_cnt, int x_cnt, function_t const* p_f);
 
 int main(int argc, char** argv)
 {
 	struct timeval start, stop;
-	int thread;
-	// int threadnum = omp_get_max_threads();
-	run_mode_e run_mode = RUN_MODE_SEQ;
 	int c;
 	opterr = 0;
 	const function_t* p_optimized_function;
 	int x_cnt = 0;
 	int points_cnt = 0;
-	int iterations;
-	point_t* points;
 	point_t result;
-	bool stop_flag = false;
 
-	while (-1 != (c = getopt(argc, argv, "hpdN:n:v")))
+	while (-1 != (c = getopt(argc, argv, "hN:n:v")))
 	{
 		switch (c)
 		{
 		case 'h':
 			help_print();
 			return 0;
-			break;
-
-		case 'p':
-			run_mode = RUN_MODE_PARALLEL;
-			break;
-
-		case 'd':
-			run_mode = RUN_MODE_DISTRUBUTED;
 			break;
 
 		case 'N':
@@ -116,15 +95,15 @@ int main(int argc, char** argv)
 	if (0 == x_cnt)
 	{
 		fputs("No n specified. Aborting\r\n", stderr);
-		x_cnt = 2;
-//		return -1;
+//		x_cnt = 2;
+		return -1;
 	}
 
 	if (0 == points_cnt)
 	{
 		fputs("No N specified. Aborting\r\n", stderr);
-		points_cnt = 2000;
-//		return -1;
+//		points_cnt = 2000;
+		return -1;
 	}
 
 	if (optind < argc)
@@ -158,55 +137,14 @@ int main(int argc, char** argv)
 	else
 	{
 		fputs("No algorithm given. Aborting.\r\n", stderr);
-		p_optimized_function = arrowhead_function_get();
-//		exit(-1);
+//		p_optimized_function = arrowhead_function_get();
+		exit(-1);
 	}
 
 	printf("N = %d\r\nn = %d\r\n", points_cnt, x_cnt);
-
 	gettimeofday(&start, NULL);
-	// run your computations here (including OpenMP stuff)
-
 	point_init(&result, x_cnt);
-
-	run_mode = RUN_MODE_DISTRUBUTED;
-	switch (run_mode)
-	{
-	case RUN_MODE_SEQ:
-		puts("Sequential execution begin");
-//		crs2_optimize(points, points_cnt, x_cnt, p_optimized_function, &result, &stop_flag);
-		break;
-
-	case RUN_MODE_PARALLEL:
-		printf("Parralel execution using %d threads begin\r\n", omp_get_max_threads());
-
-		#pragma omp parallel shared(stop_flag, points, p_optimized_function, result)
-		{
-			printf("Thread %d begin\r\n", omp_get_thread_num());
-//			if (-1 != crs2_optimize(points, points_cnt, x_cnt, p_optimized_function, &result, &stop_flag))
-//			{
-//				printf("Thread %d found solution\r\n", omp_get_thread_num());
-//			}
-
-			printf("Thread %d end\r\n", omp_get_thread_num());
-		}
-		break;
-
-	case RUN_MODE_DISTRUBUTED:
-		run_mode_ditributed_exec(points_cnt, x_cnt,
-			p_optimized_function);
-		break;
-
-	default:
-		break;
-	}
-
-//	fputs("Result: ", stdout);
-//	point_print(&result, x_cnt);
-
-//	crs2_points_free(points, points_cnt);
-//	point_free(&result);
-
+	run_mode_ditributed_exec(points_cnt, x_cnt,	p_optimized_function);
 	gettimeofday(&stop, NULL);
 	printTime(&start, &stop);
 }

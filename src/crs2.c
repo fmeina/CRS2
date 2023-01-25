@@ -91,16 +91,22 @@ int crs2_optimize(point_t *const points_arr, const int points_cnt, const int x_c
     int cntr = 0;
 	int stop_rq = 0;
 	int world_rank;
+	int world_size;
     point_t *p_worst_point;
     point_t *p_best_point;
     point_t *const R = malloc((x_cnt + 1) * sizeof(point_t));
     point_t centroid;
     point_t next_trial_point;
+	const int next_trial_point_buf_size = (x_cnt + 1) * sizeof(double);
+	char *p_next_trial_point_buf = malloc(next_trial_point_buf_size);
 	point_t result;
 	MPI_Comm_rank(MPI_COMM_WORLD, &world_rank);
+	MPI_Comm_size(MPI_COMM_WORLD, &world_size);
     unsigned int rand_seed = time(NULL) ^ world_rank;
+	int next_trial_point_event;
 
-    point_init(&centroid, x_cnt);
+
+	point_init(&centroid, x_cnt);
     point_init(&next_trial_point, x_cnt);
 	point_init(&result, x_cnt);
 
@@ -141,72 +147,85 @@ int crs2_optimize(point_t *const points_arr, const int points_cnt, const int x_c
             }
 
             constraints_ok = true;
-            // memset(centroid.x_arr, 0, x_cnt * sizeof(double));
 
-            /* step 3 - select next trial point */
-            // #pragma omp critical
-            // {
-                R[0] = *p_best_point;
+			MPI_Iprobe(MPI_ANY_SOURCE, CRS_TAG_NEXT_TRIAL_POINT, MPI_COMM_WORLD, &next_trial_point_event, MPI_STATUS_IGNORE);
 
-                for (size_t i = 1; i < (x_cnt + 1);)
-                {
-                    unsigned int idx;
+			if (true == next_trial_point_event)
+			{
+				/* next trial point from other worker is available - use it */
+				MPI_Recv(p_next_trial_point_buf, next_trial_point_buf_size, MPI_BYTE, MPI_ANY_SOURCE,
+					CRS_TAG_NEXT_TRIAL_POINT, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
+				memcpy(&p_worst_point->y, &p_next_trial_point_buf[0], sizeof(double));
+				memcpy(p_worst_point->x_arr, &p_next_trial_point_buf[sizeof(double)], x_cnt * sizeof(double));
+			}
+			else
+			{
+				/* searching is needed */
+				/* step 3 - select next trial point */
+				R[0] = *p_best_point;
+
+				for (size_t i = 1; i < (x_cnt + 1);)
+				{
+					unsigned int idx;
 #ifdef __linux__
-                    idx = rand_r(&rand_seed) % points_cnt;
+					idx = rand_r(&rand_seed) % points_cnt;
 #elif _WIN32
-                    rand_s(&idx);
-                    idx %= points_cnt;
+					rand_s(&idx);
+				idx %= points_cnt;
 #else
 #error unsupported system
 #endif
 
-                    if (p_best_point != &points_arr[idx])
-                    {
-                        R[i] = points_arr[idx];
-                        ++i;
-                    }
-                }
-            // }
+					if (p_best_point != &points_arr[idx])
+					{
+						R[i] = points_arr[idx];
+						++i;
+					}
+				}
 
-            for (size_t i = 0; i < x_cnt; i++)
-            {
-                for (size_t j = 0; j < x_cnt; j++)
-                {
-                    centroid.x_arr[i] += R[j].x_arr[i];
-                }
+				for (size_t i = 0; i < x_cnt; i++)
+				{
+					for (size_t j = 0; j < x_cnt; j++)
+					{
+						centroid.x_arr[i] += R[j].x_arr[i];
+					}
 
-                centroid.x_arr[i] /= x_cnt;
-                next_trial_point.x_arr[i] = 2 * centroid.x_arr[i] - R[x_cnt].x_arr[i];
+					centroid.x_arr[i] /= x_cnt;
+					next_trial_point.x_arr[i] = 2 * centroid.x_arr[i] - R[x_cnt].x_arr[i];
 
-                if ((next_trial_point.x_arr[i] < p_f->domain_min) || (next_trial_point.x_arr[i] > p_f->domain_max))
-                {
-                    constraints_ok = false;
-                }
-            }
+					if ((next_trial_point.x_arr[i] < p_f->domain_min) || (next_trial_point.x_arr[i] > p_f->domain_max))
+					{
+						constraints_ok = false;
+					}
+				}
 
-            /* Step 4 - check constraints */
-            if (false == constraints_ok)
-            {
-                continue;
-            }
-            
-            next_trial_point.y = p_f->p_func(next_trial_point.x_arr, x_cnt);
-            
-            bool stop = false;
-            #pragma omp critical
-            {
-                if (next_trial_point.y < p_worst_point->y)
-                {
-                    memcpy(p_worst_point->x_arr, next_trial_point.x_arr, x_cnt * sizeof(double));
-                    p_worst_point->y = next_trial_point.y;
-                    stop = true;
-                }
-            }
+				/* Step 4 - check constraints */
+				if (false == constraints_ok)
+				{
+					continue;
+				}
 
-            if (true == stop)
-            {
-                break;
-            }
+				next_trial_point.y = p_f->p_func(next_trial_point.x_arr, x_cnt);
+
+				if (next_trial_point.y < p_worst_point->y)
+				{
+					memcpy(p_worst_point->x_arr, next_trial_point.x_arr, x_cnt * sizeof(double));
+					p_worst_point->y = next_trial_point.y;
+					/* share next trial point with other workers */
+					memcpy(&p_next_trial_point_buf[0], &next_trial_point.y, sizeof(double));
+					memcpy(&p_next_trial_point_buf[sizeof(double)], next_trial_point.x_arr, x_cnt * sizeof(double));
+					for (int i = 0; i < world_size; ++i)
+					{
+						if (i != world_rank)
+						{
+							MPI_Send(p_next_trial_point_buf, next_trial_point_buf_size, MPI_BYTE, i,
+								CRS_TAG_NEXT_TRIAL_POINT, MPI_COMM_WORLD);
+						}
+					}
+
+					break;
+				}
+			}
         }
 
 		stop_rq_get(&stop_rq);
@@ -252,6 +271,7 @@ int crs2_optimize(point_t *const points_arr, const int points_cnt, const int x_c
         }
     }
 
+	free(p_next_trial_point_buf);
 	point_free(&result);
     point_free(&next_trial_point);
     point_free(&centroid);
