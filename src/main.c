@@ -35,7 +35,6 @@ void help_print(void)
 	puts("\tarrowhead");
 	puts("Flags:");
 	puts("\t-h - (optional) print this help");
-	puts("\t-p - (optional) enable parallel execution (threads number defined by OMP_NUM_THREADS env variable)");
 	puts("\t-N [int] - (mandatory) sets random points number");
 	puts("\t-n [int] - (mandatory) sets optimized function arguments count");
 	puts("\t-v - (optional) verbose output");
